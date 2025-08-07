@@ -42,9 +42,9 @@ class TranslateTitlesExtension extends Minz_Extension {
             FreshRSS_Context::$user_conf->LibreApiKey = '';
         }
         
-        // 新增：初始化正文翻译配置
-        if (is_null(FreshRSS_Context::$user_conf->TranslateContent)) {
-            FreshRSS_Context::$user_conf->TranslateContent = '0';
+        // 初始化按订阅源的翻译全文配置
+        if (is_null(FreshRSS_Context::$user_conf->TranslateContents)) {
+            FreshRSS_Context::$user_conf->TranslateContents = array();
         }
 
         FreshRSS_Context::$user_conf->save();
@@ -69,9 +69,12 @@ class TranslateTitlesExtension extends Minz_Extension {
             // 保存配置
             FreshRSS_Context::$user_conf->TranslateTitles = $translateTitles;
             
-            // 新增：保存正文翻译配置
-            $translateContent = Minz_Request::param('TranslateContent', '0');
-            FreshRSS_Context::$user_conf->TranslateContent = $translateContent;
+            // 新增：保存按订阅源的翻译全文配置
+            $translateContents = Minz_Request::param('TranslateContents', array());
+            if (!is_array($translateContents)) {
+                $translateContents = array();
+            }
+            FreshRSS_Context::$user_conf->TranslateContents = $translateContents;
             
             $deeplxApiUrl = Minz_Request::param('DeeplxApiUrl', self::ApiUrl);
             FreshRSS_Context::$user_conf->DeeplxApiUrl = $deeplxApiUrl;
@@ -88,7 +91,8 @@ class TranslateTitlesExtension extends Minz_Extension {
             
             // 保存后立即验证配置
             error_log("TranslateTitlesCN: Saved config verification: " . 
-                json_encode(FreshRSS_Context::$user_conf->TranslateTitles));
+                "Titles: " . json_encode(FreshRSS_Context::$user_conf->TranslateTitles) . 
+                ", Contents: " . json_encode(FreshRSS_Context::$user_conf->TranslateContents));
         }
     }
 
@@ -100,9 +104,9 @@ class TranslateTitlesExtension extends Minz_Extension {
         if (isset(FreshRSS_Context::$user_conf->TranslateTitles)) {
             unset(FreshRSS_Context::$user_conf->TranslateTitles);
         }
-        // 新增：清除正文翻译配置
-        if (isset(FreshRSS_Context::$user_conf->TranslateContent)) {
-            unset(FreshRSS_Context::$user_conf->TranslateContent);
+        // 新增：清除按订阅源的翻译全文配置
+        if (isset(FreshRSS_Context::$user_conf->TranslateContents)) {
+            unset(FreshRSS_Context::$user_conf->TranslateContents);
         }
         if (isset(FreshRSS_Context::$user_conf->DeeplxApiUrl)) {
             unset(FreshRSS_Context::$user_conf->DeeplxApiUrl);
@@ -133,33 +137,33 @@ class TranslateTitlesExtension extends Minz_Extension {
         }
         
         $feedId = $entry->feed()->id();
-        // 检查此订阅源是否启用了翻译
+        
+        $translateController = new TranslateController();
+        
+        // 1. 检查此订阅源是否启用了标题翻译
         if (isset(FreshRSS_Context::$user_conf->TranslateTitles[$feedId]) && 
             FreshRSS_Context::$user_conf->TranslateTitles[$feedId] == '1') {
             
-            $translateController = new TranslateController();
-
-            // 1. 翻译标题
             $title = $entry->title();
             error_log("Original title: " . $title);
-            // 函数名从 translateTitle 改为 translateText
             $translatedTitle = $translateController->translateText($title);
             error_log("Translated title: " . ($translatedTitle ?: 'translation failed'));
             if (!empty($translatedTitle) && $translatedTitle !== $title) {
                 $entry->_title($translatedTitle . ' - ' . $title); // 将翻译后的标题放在前，原文标题放在后
             }
+        }
 
-            // 2. 翻译正文 (如果启用)
-            if (isset(FreshRSS_Context::$user_conf->TranslateContent) && FreshRSS_Context::$user_conf->TranslateContent == '1') {
-                $content = $entry->content();
-                error_log("Original content: " . substr($content, 0, 100) . "...");
-                // 函数名从 translateTitle 改为 translateText
-                $translatedContent = $translateController->translateText($content);
-                error_log("Translated content: " . ($translatedContent ? 'translation successful' : 'translation failed'));
-                if (!empty($translatedContent) && $translatedContent !== $content) {
-                    // 在原文上方加上翻译后的正文
-                    $entry->_content('<p><b>[中文翻译]</b></p>' . $translatedContent . '<hr><p><b>[原文]</b></p>' . $content);
-                }
+        // 2. 检查此订阅源是否启用了全文翻译
+        if (isset(FreshRSS_Context::$user_conf->TranslateContents[$feedId]) && 
+            FreshRSS_Context::$user_conf->TranslateContents[$feedId] == '1') {
+            
+            $content = $entry->content();
+            error_log("Original content: " . substr($content, 0, 100) . "...");
+            $translatedContent = $translateController->translateText($content);
+            error_log("Translated content: " . ($translatedContent ? 'translation successful' : 'translation failed'));
+            if (!empty($translatedContent) && $translatedContent !== $content) {
+                // 在原文上方加上翻译后的正文
+                $entry->_content('<p><b>[中文翻译]</b></p>' . $translatedContent . '<hr><p><b>[原文]</b></p>' . $content);
             }
         }
         return $entry;
