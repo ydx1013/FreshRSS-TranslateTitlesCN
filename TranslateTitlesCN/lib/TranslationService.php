@@ -15,6 +15,9 @@ class TranslationService {
     }
 
     public function translate($text) {
+        // 在这里统一添加5秒延迟，确保每次API调用前都会等待
+        sleep(5);
+        
         switch ($this->serviceType) {
             case 'deeplx':
                 return $this->translateWithDeeplx($text);
@@ -125,7 +128,7 @@ class TranslationService {
             'http' => [
                 'method' => 'GET',
                 'header' => "Content-Type: application/x-www-form-urlencoded\r\n",
-                'timeout' => 3,
+                'timeout' => 10, // 增加超时时间
             ],
         ];
 
@@ -145,8 +148,6 @@ class TranslationService {
                 throw new Exception("Google Translate API returned an empty translation.");
             }
 
-            // 记录成功的翻译
-            // error_log("Translation successful for text: " . $text . "; Translated: " . $translatedText);
         } catch (Exception $e) {
             // 记录错误信息
             error_log("Error in translation: " . $e->getMessage());
@@ -158,10 +159,7 @@ class TranslationService {
     private function translateWithDeeplx($text) {
         // DeeplX翻译逻辑
         $translatedText = '';
-
-        // 增加1-3秒的随机时间间隔
-        sleep(rand(1, 3));
-
+        
         // 构建POST数据
         $postData = json_encode([
             'text' => $text,
@@ -174,7 +172,7 @@ class TranslationService {
                 'header' => "Content-Type: application/json\r\n",
                 'method' => 'POST',
                 'content' => $postData,
-                'timeout' => 3, // 设置超时时间
+                'timeout' => 10, // 增加超时时间
             ]
         ];
 
@@ -195,8 +193,6 @@ class TranslationService {
                 throw new Exception("DeeplX API returned an empty translation. Response code: " . $response['code']);
             }
 
-            // 记录成功的翻译
-            // error_log("Translation successful for text: " . $text . "; Translated: " . $translatedText);
         } catch (Exception $e) {
             // 处理错误情况
             error_log("Error in DeeplX translation: " . $e->getMessage());
