@@ -23,8 +23,8 @@ class TranslateTitlesExtension extends Minz_Extension {
             }
         }
         
-        $this->registerHook('feed_before_insert', array($this, 'addTranslationOption'));
-        $this->registerHook('entry_before_insert', array($this, 'translateTitle'));
+        // 我们将挂钩函数从 translateTitle 改为更通用的 translateEntry
+        $this->registerHook('entry_before_insert', array($this, 'translateEntry'));
 
         if (is_null(FreshRSS_Context::$user_conf->TranslateService)) {
             FreshRSS_Context::$user_conf->TranslateService = 'google';
@@ -41,11 +41,15 @@ class TranslateTitlesExtension extends Minz_Extension {
         if (is_null(FreshRSS_Context::$user_conf->LibreApiKey)) {
             FreshRSS_Context::$user_conf->LibreApiKey = '';
         }
+        
+        // 新增：初始化正文翻译配置
+        if (is_null(FreshRSS_Context::$user_conf->TranslateContent)) {
+            FreshRSS_Context::$user_conf->TranslateContent = '0';
+        }
 
         FreshRSS_Context::$user_conf->save();
 
         error_log('TranslateTitlesCN: Hooks registered');
-        // error_log('TranslateTitlesCN: Current translation config: ' . json_encode(FreshRSS_Context::$user_conf->TranslateTitles));
     }
 
     public function handleConfigureAction() {
@@ -64,6 +68,10 @@ class TranslateTitlesExtension extends Minz_Extension {
             
             // 保存配置
             FreshRSS_Context::$user_conf->TranslateTitles = $translateTitles;
+            
+            // 新增：保存正文翻译配置
+            $translateContent = Minz_Request::param('TranslateContent', '0');
+            FreshRSS_Context::$user_conf->TranslateContent = $translateContent;
             
             $deeplxApiUrl = Minz_Request::param('DeeplxApiUrl', self::ApiUrl);
             FreshRSS_Context::$user_conf->DeeplxApiUrl = $deeplxApiUrl;
@@ -92,6 +100,10 @@ class TranslateTitlesExtension extends Minz_Extension {
         if (isset(FreshRSS_Context::$user_conf->TranslateTitles)) {
             unset(FreshRSS_Context::$user_conf->TranslateTitles);
         }
+        // 新增：清除正文翻译配置
+        if (isset(FreshRSS_Context::$user_conf->TranslateContent)) {
+            unset(FreshRSS_Context::$user_conf->TranslateContent);
+        }
         if (isset(FreshRSS_Context::$user_conf->DeeplxApiUrl)) {
             unset(FreshRSS_Context::$user_conf->DeeplxApiUrl);
         }
@@ -104,7 +116,8 @@ class TranslateTitlesExtension extends Minz_Extension {
         FreshRSS_Context::$user_conf->save();
     }
 
-    public function translateTitle($entry) {
+    // 函数名从 translateTitle 改为 translateEntry
+    public function translateEntry($entry) {
         // CLI 模式下的特殊处理
         if (php_sapi_name() == 'cli') {
             if (!FreshRSS_Context::$user_conf) {
@@ -119,20 +132,34 @@ class TranslateTitlesExtension extends Minz_Extension {
             }
         }
         
-        // 原有的翻译逻辑
         $feedId = $entry->feed()->id();
+        // 检查此订阅源是否启用了翻译
         if (isset(FreshRSS_Context::$user_conf->TranslateTitles[$feedId]) && 
             FreshRSS_Context::$user_conf->TranslateTitles[$feedId] == '1') {
-            $title = $entry->title();
-            error_log("Original title: " . $title);
             
             $translateController = new TranslateController();
-            $translatedTitle = $translateController->translateTitle($title);
-            
+
+            // 1. 翻译标题
+            $title = $entry->title();
+            error_log("Original title: " . $title);
+            // 函数名从 translateTitle 改为 translateText
+            $translatedTitle = $translateController->translateText($title);
             error_log("Translated title: " . ($translatedTitle ?: 'translation failed'));
-            
-            if (!empty($translatedTitle)) {
+            if (!empty($translatedTitle) && $translatedTitle !== $title) {
                 $entry->_title($translatedTitle . ' - ' . $title); // 将翻译后的标题放在前，原文标题放在后
+            }
+
+            // 2. 翻译正文 (如果启用)
+            if (isset(FreshRSS_Context::$user_conf->TranslateContent) && FreshRSS_Context::$user_conf->TranslateContent == '1') {
+                $content = $entry->content();
+                error_log("Original content: " . substr($content, 0, 100) . "...");
+                // 函数名从 translateTitle 改为 translateText
+                $translatedContent = $translateController->translateText($content);
+                error_log("Translated content: " . ($translatedContent ? 'translation successful' : 'translation failed'));
+                if (!empty($translatedContent) && $translatedContent !== $content) {
+                    // 在原文上方加上翻译后的正文
+                    $entry->_content('<p><b>[中文翻译]</b></p>' . $translatedContent . '<hr><p><b>[原文]</b></p>' . $content);
+                }
             }
         }
         return $entry;
@@ -152,11 +179,12 @@ class TranslateTitlesExtension extends Minz_Extension {
         }
         return $users;
     }
-
-    public function addTranslationOption($feed) {
-        $feed->TranslateTitles = '0';
-        return $feed;
-    }
+    
+    // 这个函数不再需要，因为我们不再在 feed 对象中添加属性
+    // public function addTranslationOption($feed) {
+    //     $feed->TranslateTitles = '0';
+    //     return $feed;
+    // }
 
     public function handleTestAction() {
         header('Content-Type: application/json');
